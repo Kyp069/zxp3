@@ -28,7 +28,8 @@ module data_io
 	input             SPI_SS2,
 	input             SPI_SS4,
 	input             SPI_DI,
-	inout             SPI_DO,
+	output            SPI_DO,
+	input             SPI_DO_IN,
 
 	input             QCSn,
 	input             QSCK,
@@ -43,7 +44,7 @@ module data_io
 	                                      // Note: this is also set for user_io mounts.
 	                                      // Valid when ioctl_download = 1 or when img_mounted strobe is active in user_io.
 	output reg        ioctl_wr,           // strobe indicating ioctl_dout valid
-	output reg [24:0] ioctl_addr,
+	output reg [26:0] ioctl_addr,
 	output reg  [7:0] ioctl_dout,
 	input       [7:0] ioctl_din,
 	output reg [23:0] ioctl_fileext,      // file extension
@@ -56,7 +57,7 @@ module data_io
 	input             hdd_dat_req,
 	output            hdd_cdda_wr,
 	output            hdd_status_wr,
-	output      [2:0] hdd_addr = 0,
+	output      [2:0] hdd_addr,
 	output            hdd_wr,
 
 	output     [15:0] hdd_data_out,
@@ -69,7 +70,7 @@ module data_io
 	output      [1:0] hdd1_ena
 );
 
-parameter START_ADDR = 25'd0;
+parameter START_ADDR = 27'd0;
 parameter ROM_DIRECT_UPLOAD = 0;
 parameter USE_QSPI = 0;
 parameter ENABLE_IDE = 0;
@@ -230,8 +231,7 @@ always@(posedge SPI_SCK, posedge SPI_SS4) begin : SPI_DIRECT_RECEIVER
 		// don't shift in last bit. It is evaluated directly
 		// when writing to ram
 		if(cnt2 != 7)
-			sbuf2 <= { sbuf2[5:0], SPI_DO };
-
+			sbuf2 <= { sbuf2[5:0], SPI_DO_IN };
 		cnt2 <= cnt2 + 1'd1;
 
 		// received a byte
@@ -241,7 +241,7 @@ always@(posedge SPI_SCK, posedge SPI_SS4) begin : SPI_DIRECT_RECEIVER
 			if (bytecnt == 513) bytecnt <= 0;
 			// don't send the CRC bytes
 			if (~bytecnt[9]) begin
-				data_w2 <= {sbuf2, SPI_DO};
+				data_w2 <= {sbuf2, SPI_DO_IN};
 				rclk2 <= ~rclk2;
 			end
 		end
@@ -288,7 +288,7 @@ always@(posedge clk_sys) begin : DATA_OUT
 	reg addr_resetD, addr_resetD2;
 
 	reg wr_int, wr_int_direct, wr_int_qspi, rd_int;
-	reg [24:0] addr;
+	reg [26:0] addr;
 	reg [31:0] filepos;
 
 	// bring flags from spi clock domain into core clock domain

@@ -132,7 +132,7 @@ assign conf_addr = byte_cnt;
 wire [7:0] core_type = ARCHIE ? 8'ha6 : ROM_DIRECT_UPLOAD ? 8'hb4 : 8'ha4;
 
 reg [W:0] drive_sel;
-always begin
+always begin :block0
 	integer i;
 	drive_sel = 0;
 	for(i = 0; i < SD_IMAGES; i = i + 1) if(sd_rd[i] | sd_wr[i]) drive_sel = i[W:0];
@@ -145,7 +145,7 @@ wire spi_sck = SPI_CLK;
 
 // ---------------- PS2 ---------------------
 reg ps2_clk;
-always @(posedge clk_sys) begin
+always @(posedge clk_sys) begin :block1
 	integer cnt;
 	cnt <= cnt + 1'd1;
 	if(cnt == PS2DIV) begin
@@ -254,11 +254,11 @@ always@(negedge spi_sck or posedge SPI_SS_IO) begin : spi_byteout
 	end
 end
 
-generate if (ARCHIE) begin
 reg  [7:0] kbd_out_status;
 reg  [7:0] kbd_out_data_r;
 reg        kbd_out_data_available = 0;
 
+generate if (ARCHIE) begin
 always@(negedge spi_sck or posedge SPI_SS_IO) begin : archie_kbd_out
 	if(SPI_SS_IO == 1) begin
 		kbd_out_data_r <= 0;

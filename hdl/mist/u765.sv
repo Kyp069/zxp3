@@ -47,7 +47,7 @@ module u765 #(parameter CYCLES = 20'd4000, SPECCY_SPEEDLOCK_HACK = 0)
 	input      [1:0] img_mounted, // signaling that new image has been mounted
 	input            img_wp,      // write protect. latched at img_mounted
 	input     [31:0] img_size,    // size of image in bytes
-	output    [31:0] sd_lba,
+	output reg[31:0] sd_lba,
 	output reg [1:0] sd_rd,
 	output reg [1:0] sd_wr,
 	input            sd_ack,
@@ -190,7 +190,7 @@ end
 
 wire       rd = nWR & ~nRD;
 wire       wr = ~nWR & nRD;
-wire [7:0] i_total_sectors;
+reg  [7:0] i_total_sectors;
 
 reg  [7:0] m_status;  //main status register
 reg  [7:0] m_data;    //data register

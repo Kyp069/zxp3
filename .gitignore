@@ -83,3 +83,11 @@ _xmsgs/
 ### VS
 
 .vs/
+
+### Vivado
+
+*.hw/
+*.runs/
+*.cache/
+*.jou
+*.log

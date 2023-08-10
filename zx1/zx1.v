@@ -14,18 +14,17 @@
 //  You should have received a copy of the GNU General Public License along with this program;
 //  if not, If not, see <https://www.gnu.org/licenses/>.
 //-------------------------------------------------------------------------------------------------
-module np1
+module zx1
 //-------------------------------------------------------------------------------------------------
 (
-	input  wire       clock50,
+	input  wire        clock50,
 
+	output wire[ 1:0] stnd,
 	output wire[ 1:0] sync,
-	output wire[17:0] rgb,
+	output wire[ 8:0] rgb,
 
 	input  wire       tape,
-	output wire       midi,
 	output wire[ 1:0] dsg,
-	output wire[ 2:0] i2s,
 
 	input  wire       ps2kDQ,
 	input  wire       ps2kCk,
@@ -33,56 +32,23 @@ module np1
 	inout  wire       ps2mDQ,
 	inout  wire       ps2mCk,
 
-	output wire       joyCk,
-	output wire       joyLd,
-	output wire       joyS,
-	input  wire       joyD,
+	input  wire[ 5:0] joy,
 
 	output wire       sdcCs,
 	output wire       sdcCk,
 	output wire       sdcMosi,
 	input  wire       sdcMiso,
 
-	output wire       sramUb,
-	output wire       sramLb,
-	output wire       sramOe,
 	output wire       sramWe,
+	inout  wire[ 7:0] sramDQ,
+	output wire[20:0] sramA,
 
-	output wire       dramCk,
-	output wire       dramCe,
-	output wire       dramCs,
-	output wire       dramWe,
-	output wire       dramRas,
-	output wire       dramCas,
-
-	output wire       stm,
 	output wire       led
 );
 //-------------------------------------------------------------------------------------------------
 
 wire clock, power;
 pll pll(clock50, clock, power);
-
-//-------------------------------------------------------------------------------------------------
-
-reg tapeini, tapegot;
-always @(posedge clock) if(!power) if(!tapegot) { tapeini, tapegot } <= { tape, 1'b1 };
-
-//-------------------------------------------------------------------------------------------------
-
-wire[7:0] joy1;
-wire[7:0] joy2;
-
-joystick Joystick
-(
-	.clock  (clock  ),
-	.joyCk  (joyCk  ),
-	.joyLd  (joyLd  ),
-	.joyS   (joyS   ),
-	.joyD   (joyD   ),
-	.joy1   (joy1   ),
-	.joy2   (joy2   )
-);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -93,7 +59,8 @@ wire[ 7:0] romD;
 
 wire[ 1:0] iblank = { vblank, hblank };
 wire[ 1:0] isync = { vsync, hsync };
-wire[17:0] irgb = { r,{4{r&i}},r, g,{4{g&i}},g, b,{4{b&i}},b };
+wire[17:0] irgb = { r,{2{r&i}},3'd0, g,{2{g&i}},3'd0, b,{2{b&i}},3'd0 };
+wire[17:0] orgb;
 
 wire[1:0] ps2ki = { ps2kDQ, ps2kCk };
 wire[1:0] ps2ko;
@@ -117,7 +84,7 @@ demistify demistify
 	cep1x, cep2x,
 	sdcCs, sdcCk, sdcMosi, sdcMiso,
 	romIo, romWr, romA, romD,
-	iblank, isync, irgb, sync, rgb,
+	iblank, isync, irgb, sync, orgb,
 	ps2ki, ps2ko,
 	sdvCs, sdvCk, sdvMosi, sdvMiso,
 	fddCe, fddRd, fddWr, fddA, fddD, fddQ, fddMtr
@@ -128,24 +95,29 @@ demistify demistify
 wire      strb;
 wire      make;
 wire[7:0] code;
-ps2k ps2k(clock, ps2ko, strb, make, code);
+ps2k ps2k(clock, ps2ko[1], ps2ko[0], strb, make, code);
 
 wire[7:0] xaxis;
 wire[7:0] yaxis;
 wire[2:0] mbtns;
-ps2m mouse(clock, reset, ps2mDQ, ps2mCk, xaxis, yaxis, mbtns);
+ps2m ps2m(clock, reset, ps2mDQ, ps2mCk, xaxis, yaxis, mbtns);
 
-reg F9 = 1'b1;
-reg F5 = 1'b1;
+reg F9 = 1'b1, F8 = 1'b1, F5 = 1'b1;
+reg alt = 1'b1, del = 1'b1, ctrl = 1'b1, bspc = 1'b1;
 always @(posedge clock) if(strb)
 	case(code)
 		8'h01: F9 <= make;
+		8'h0A: F8 <= make;
 		8'h03: F5 <= make;
+		8'h11: alt <= make;
+		8'h71: del <= make;
+		8'h14: ctrl <= make;
+		8'h66: bspc <= make;
 	endcase
 
 //-------------------------------------------------------------------------------------------------
 
-wire reset = power && F9 && !romIo;
+wire reset = power && F9 && (ctrl || alt || del) && !romIo;
 wire nmi = F5;
 
 wire cep1x;
@@ -168,60 +140,92 @@ wire g;
 wire b;
 wire i;
 
-wire ear = tape^tapeini;
+wire ear = ~tape;
 
 wire[14:0] left;
 wire[14:0] right;
 
+wire[ 7:0] joy1 = { 2'b00, ~joy };
+wire[ 7:0] joy2 = 8'h00;
+
 zx Zx
 (
-	clock, power, reset, nmi,
-	cep1x, cep2x,
-	memA1,memQ1, memA2,memD2,memQ2,memW2,
-	hblank, vblank, hsync, vsync, r, g, b, i,
-	ear, midi, left, right,
-	strb, make, code,
-	xaxis, yaxis, mbtns,
-	joy1, joy2,
-	sdvCs, sdvCk, sdvMosi, sdvMiso,
-	fddCe, fddRd, fddWr, fddA, fddD, fddQ, fddMtr
+	.clock  (clock  ),
+	.power  (power  ),
+	.reset  (reset  ),
+	.nmi    (nmi    ),
+	.cep1x  (cep1x  ),
+	.cep2x  (cep2x  ),
+	.memA1  (memA1  ),
+	.memQ1  (memQ1  ),
+	.memA2  (memA2  ),
+	.memD2  (memD2  ),
+	.memQ2  (memQ2  ),
+	.memW2  (memW2  ),
+	.hblank (hblank ),
+	.vblank (vblank ),
+	.hsync  (hsync  ),
+	.vsync  (vsync  ),
+	.r      (r      ),
+	.g      (g      ),
+	.b      (b      ),
+	.i      (i      ),
+	.ear    (ear    ),
+	.midi   (       ),
+	.left   (left   ),
+	.right  (right  ),
+	.strb   (strb   ),
+	.make   (make   ),
+	.code   (code   ),
+	.xaxis  (xaxis  ),
+	.yaxis  (yaxis  ),
+	.mbtns  (mbtns  ),
+	.joy1   (joy1   ),
+	.joy2   (joy2   ),
+	.cs     (sdvCs  ),
+	.ck     (sdvCk  ),
+	.mosi   (sdvMosi),
+	.miso   (sdvMiso),
+	.fddCe  (       ),
+	.fddRd  (       ),
+	.fddWr  (       ),
+	.fddA   (       ),
+	.fddD   (       ),
+	.fddQ   (8'hFF  ),
+	.fddMtr (       )
 );
+
+//-------------------------------------------------------------------------------------------------
+
+assign stnd = 2'b01;
+assign rgb = { orgb[17:15], orgb[11:9], orgb[5:3] };
 
 //-------------------------------------------------------------------------------------------------
 
 dsg #(14) dsg1(clock, reset,  left, dsg[1]);
 dsg #(14) dsg0(clock, reset, right, dsg[0]);
-i2s i2sOut(clock, i2s, { 1'b0,  left }, { 1'b0, right });
 
 //-------------------------------------------------------------------------------------------------
 
 wire dprW2 = memW2 && (memA2[16:14] == 5 || memA2[16:14] == 7) && !memA2[13];
 dprs #(16) dpr(clock, memA1, memQ1, { memA2[15], memA2[12:0] }, memD2, dprW2);
 
-wire[7:0] romQ;
-rom_zxp3 rom(clock, romIo ? romA[15:0] : memA2[15:0], romD, romQ, romWr);
+assign sramWe = !(romIo ? romWr : memW2);
+assign sramDQ = sramWe ? 8'bZ : romIo ? romD : memD2;
+assign sramA = { 3'd0, romIo ? romA[17:0] : memA2 };
 
-wire[7:0] ramQ;
-ram #(128) ram(clock, memA2[16:0], memD2, ramQ, memW2);
+assign memQ2 = sramDQ;
 
-assign memQ2 = memA2[17] ? ramQ : !memA2[16] ? romQ : 8'hFF;
+assign led = ~sdcCs;
 
 //-------------------------------------------------------------------------------------------------
 
-assign sramUb = 1'b1;
-assign sramLb = 1'b1;
-assign sramOe = 1'b1;
-assign sramWe = 1'b1;
+reg[1:0] mb = 0;
+always @(posedge clock) mb <= mb+1'd1;
 
-assign dramCk = 1'b0;
-assign dramCe = 1'b0;
-assign dramCs = 1'b1;
-assign dramWe = 1'b1;
-assign dramRas = 1'b1;
-assign dramCas = 1'b1;
-
-assign led = sdcCs;
-assign stm = 1'b0;
+wire clockmb;
+BUFG bufg_mb(.I(mb[1]), .O(clockmb));
+multiboot multiboot(clockmb, F8 && (ctrl || alt || bspc));
 
 //-------------------------------------------------------------------------------------------------
 endmodule

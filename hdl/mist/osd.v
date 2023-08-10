@@ -47,7 +47,7 @@ reg        osd_enable;
 (* ramstyle = "no_rw_check" *) reg  [7:0] osd_buffer[2047:0];  // the OSD buffer itself
 
 // the OSD has its own SPI interface to the io controller
-always@(posedge SPI_SCK, posedge SPI_SS3) begin
+always@(posedge SPI_SCK, posedge SPI_SS3) begin : block_01
 	reg  [4:0] cnt;
 	reg [10:0] bcnt;
 	reg  [7:0] sbuf;
@@ -100,7 +100,7 @@ wire [10:0] dsp_height = vs_pol ? vs_low : vs_high;
 wire doublescan = (dsp_height>350);
 
 reg auto_ce_pix;
-always @(posedge clk_sys) begin
+always @(posedge clk_sys) begin : block_02
 	reg [15:0] cnt = 0;
 	reg  [2:0] pixsz;
 	reg  [2:0] pixcnt;
@@ -129,7 +129,7 @@ end
 
 wire ce_pix = OSD_AUTO_CE ? auto_ce_pix : ce;
 
-always @(posedge clk_sys) begin
+always @(posedge clk_sys) begin : block_03
 	reg hsD;
 	reg vsD;
 
