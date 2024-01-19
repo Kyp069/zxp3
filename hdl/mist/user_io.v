@@ -111,7 +111,7 @@ parameter PS2BIDIR=0; // bi-directional PS2 interface
 parameter FEATURES=0; // requested features from the firmware
 parameter ARCHIE=0;
 
-localparam W = $clog2(SD_IMAGES);
+parameter W = $clog2(SD_IMAGES);
 
 reg [6:0]     sbuf;
 reg [7:0]     cmd;
@@ -142,6 +142,7 @@ end
 wire [7:0] sd_cmd = { 4'h6, sd_conf, sd_sdhc, sd_wr[drive_sel], sd_rd[drive_sel] };
 
 wire spi_sck = SPI_CLK;
+reg [7:0] spi_byte_in;
 
 // ---------------- PS2 ---------------------
 reg ps2_clk;
@@ -340,7 +341,6 @@ end
 
 reg       spi_receiver_strobe_r = 0;
 reg       spi_transfer_end_r = 1;
-reg [7:0] spi_byte_in;
 
 // Read at spi_sck clock domain, assemble bytes for transferring to clk_sys
 always@(posedge spi_sck or posedge SPI_SS_IO) begin : spi_receiver

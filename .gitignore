@@ -87,6 +87,7 @@ _xmsgs/
 ### Vivado
 
 *.hw/
+*.xil/
 *.runs/
 *.cache/
 *.jou

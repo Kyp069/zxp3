@@ -23,10 +23,11 @@ module zx3
 	output wire[17:0] rgb,
 
 	input  wire       tape,
+	input  wire[ 2:0] i2sIn,
 	
-	output wire       i2sCk,
-	output wire       i2sWs,
-	output wire       i2sQ,
+	output wire       midi,
+	output wire[ 1:0] dsg,
+	output wire[ 2:0] i2sOut,
 
 	input  wire       ps2kDQ,
 	input  wire       ps2kCk,
@@ -214,7 +215,7 @@ zx zx
 	.b      (b      ),
 	.i      (i      ),
 	.ear    (ear    ),
-	.midi   (       ),
+	.midi   (midi   ),
 	.left   (left   ),
 	.right  (right  ),
 	.strb   (strb   ),
@@ -240,7 +241,15 @@ zx zx
 
 //-------------------------------------------------------------------------------------------------
 
-i2s i2s(clock, { i2sCk, i2sWs, i2sQ }, { 1'b0,  left }, { 1'b0, right });
+wire[15:0] lmidi, rmidi;
+i2s_in i2s_in(clock, i2sIn, lmidi, rmidi);
+
+wire[15:0] lmix = { 1'b0, lmidi[15:1] }^16'h4000+{ 1'd0,  left };
+wire[15:0] rmix = { 1'b0, rmidi[15:1] }^16'h4000+{ 1'd0, right };
+
+dsg #(15) dsg1(clock, reset, lmix, dsg[1]);
+dsg #(15) dsg0(clock, reset, rmix, dsg[0]);
+i2s_out i2s_out(clock, i2sOut, lmix, rmix);
 
 //-------------------------------------------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 //-------------------------------------------------------------------------------------------------
-module i2s
+module i2s_in
 //-------------------------------------------------------------------------------------------------
 //  This file is part of the ZX Spectrum +3 project.
 //  Copyright (C) 2023 Kyp069 <kyp069@gmail.com>
@@ -17,31 +17,35 @@ module i2s
 //-------------------------------------------------------------------------------------------------
 (
 	input  wire       clock,
-	output wire[ 2:0] i2s,
-	input  wire[15:0] l,
-	input  wire[15:0] r
+	input  wire[ 2:0] i2s,
+	output reg [15:0] left,
+	output reg [15:0] right
 );
 //-------------------------------------------------------------------------------------------------
 
-reg[8:0] ce;
-always @(negedge clock) ce <= ce+1'd1;
+reg[1:0] cks;
+always @(posedge clock) cks <= { cks[0], i2s[0] };
 
-wire ce4 = &ce[3:0];
-wire ce5 = &ce[4:0];
-wire ce9a = ce[8] & ce[7] & ce[6] &  ce[5] & ce[4] & ce[3] & ce[2] & ce[1] & ce[0];
-wire ce9b = ce[8] & ce[7] & ce[6] & ~ce[5] & ce[4] & ce[3] & ce[2] & ce[1] & ce[0];
+//-------------------------------------------------------------------------------------------------
 
-reg ck;
-always @(posedge clock) if(ce4) ck <= ~ck;
+reg ckd;
+wire ckp = cks[1] && !ckd;
+always @(posedge clock) ckd <= cks[1];
 
-reg lr;
-always @(posedge clock) if(ce9b) lr <= ~lr;
+reg lrd;
+wire lrp = i2s[1] != lrd;
+always @(posedge clock) if(ckp) lrd <= i2s[1];
 
-reg q;
-reg[14:0] sr;
-always @(posedge clock) if(ce9a) { q, sr } <= lr ? r : l; else if(ce5) { q, sr } <= { sr, 1'b0 };
+//-------------------------------------------------------------------------------------------------
 
-assign i2s = { q, lr, ck };
+reg[16:0] sr = 17'd1;
+always @(posedge clock) if(ckp) begin
+	if(lrp) begin
+		sr <= 17'd1;
+		if(lrd) right <= sr[15:0]; else left <= sr[15:0];
+	end
+	else if(!sr[16]) sr <= { sr[15:0], i2s[2] };
+end
 
 //-------------------------------------------------------------------------------------------------
 endmodule

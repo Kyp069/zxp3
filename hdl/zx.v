@@ -287,7 +287,7 @@ wire[5:0] if2l = ~{ joy1[5], joy1[1], joy1[0], joy1[2], joy1[3], joy1[4] };
 wire[5:0] if2r = ~{ joy2[5], joy2[1], joy2[0], joy2[2], joy2[3], joy2[4] };
 wire[4:0] keyQ;
 
-keyboard Keyboard
+keyboard keyboard
 (
 	.clock  (clock  ),
 	.strb   (strb   ),
