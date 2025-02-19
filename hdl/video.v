@@ -95,9 +95,9 @@ assign hblank = hCount >= 320 && hCount < 416;
 assign vsync = vCount >= 248 && vCount < 252;
 assign hsync = hCount >= 344 && hCount < 376;
 
-assign r = dataSelect ? attrOutput[1] : attrOutput[4];
-assign g = dataSelect ? attrOutput[2] : attrOutput[5];
-assign b = dataSelect ? attrOutput[0] : attrOutput[3];
+assign r = hblank | vblank ? 1'b0 : dataSelect ? attrOutput[1] : attrOutput[4];
+assign g = hblank | vblank ? 1'b0 : dataSelect ? attrOutput[2] : attrOutput[5];
+assign b = hblank | vblank ? 1'b0 : dataSelect ? attrOutput[0] : attrOutput[3];
 assign i = attrOutput[6];
 
 //-------------------------------------------------------------------------------------------------

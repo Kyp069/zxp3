@@ -16,7 +16,7 @@ module zx
 //  if not, If not, see <https://www.gnu.org/licenses/>.
 //-------------------------------------------------------------------------------------------------
 (
-	input  wire       clock,  // clock 56 MHz
+	input  wire       clock,  // clock 56.7504 MHz
 	input  wire       power,
 	input  wire       reset,
 	input  wire       nmi,
