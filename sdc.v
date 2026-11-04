@@ -28,15 +28,13 @@ module sdc
 //-------------------------------------------------------------------------------------------------
 
 always @(posedge clock, negedge reset)
-	if(!reset) cs <= 1'b1; else if(ce) if(!iorq && !wr && (a == 8'h1F || a == 8'hE7) && enable) cs <= d[0];
+	if(!reset) cs <= 1'b1; else if(ce) if(!iorq && !wr && (a == 8'h1F || a == 8'hE7)) cs <= d[0];
 
 //-------------------------------------------------------------------------------------------------
 
 reg iod, iop;
 wire iorqEB = !iorq && (a == 8'h3F || a == 8'hEB) && (!rd || !wr);
 always @(posedge clock) if(cep) begin iod <= iorqEB; iop <= iorqEB && !iod; end
-
-wire clr = !iorq && (a == 8'h1F || a == 8'hE7) && d[0];
 
 //-------------------------------------------------------------------------------------------------
 
@@ -46,7 +44,6 @@ spi Spi
 (
 	.clock  (clock  ),
 	.ce     (cen    ),
-	.clr    (clr    ),
 	.io     (iop    ),
 	.d      (spiD   ),
 	.q      (q      ),
