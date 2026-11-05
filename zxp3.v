@@ -204,38 +204,31 @@ module zxp3
 
 	reg[2:0] allramPage;
 	always @(*) case({ data1FFD[2:1], a[15:14] })
-		4'h0: allramPage = 3'd0; // 0000   0 00
-		4'h1: allramPage = 3'd1; // 0001   0 01
-		4'h2: allramPage = 3'd2; // 0010   0 10
-		4'h3: allramPage = 3'd3; // 0011   0 11
-		4'h4: allramPage = 3'd4; // 0100   1 00
-		4'h5: allramPage = 3'd5; // 0101   1 01
-		4'h6: allramPage = 3'd6; // 0110   1 10
-		4'h7: allramPage = 3'd7; // 0111   1 11
-		4'h8: allramPage = 3'd4; // 1000   1 00
-		4'h9: allramPage = 3'd5; // 1001   1 01
-		4'hA: allramPage = 3'd6; // 1010   1 10
-		4'hB: allramPage = 3'd3; // 1011   0 11
-		4'hC: allramPage = 3'd4; // 1100   1 00
-		4'hD: allramPage = 3'd7; // 1101   1 11
-		4'hE: allramPage = 3'd6; // 1110   1 10
-		4'hF: allramPage = 3'd3; // 1111   0 11
+		4'h0: allramPage = 3'd0;
+		4'h1: allramPage = 3'd1;
+		4'h2: allramPage = 3'd2;
+		4'h3: allramPage = 3'd3;
+		4'h4: allramPage = 3'd4;
+		4'h5: allramPage = 3'd5;
+		4'h6: allramPage = 3'd6;
+		4'h7: allramPage = 3'd7;
+		4'h8: allramPage = 3'd4;
+		4'h9: allramPage = 3'd5;
+		4'hA: allramPage = 3'd6;
+		4'hB: allramPage = 3'd3;
+		4'hC: allramPage = 3'd4;
+		4'hD: allramPage = 3'd7;
+		4'hE: allramPage = 3'd6;
+		4'hF: allramPage = 3'd3;
 	endcase
 
-	// wire P = data1FFD[2];
-	// wire Q = data1FFD[1];
-	// wire R = a[15];
-	// wire S = a[14];
-
-	// wire[2:0] allramPage = { (Q&~P)|(P&~S)|(P&~R), R|(S&Q&P), S };
-
 	wire[2:0] romPage = mapped ? 3'd4 : { 1'b0, data1FFD[2], data7FFD[4] };
-	wire[2:0] ramPage = data1FFD[0] ? allramPage : a[15] ? (a[14] ? data7FFD[2:0] : 3'd2) : 3'd5;
+	wire[2:0] ramPage = a[15] ? (a[14] ? data7FFD[2:0] : 3'd2) : 3'd5;
 
-	assign a2 = a[15:14] ? { 2'd2, ramPage, a[13:0] } : mapped && ramcs ? { 2'd1, page, a[12:0] } : { 2'd0, romPage, a[13:0] };
+	assign a2 = data1FFD[0] ? { 2'd2, allramPage, a[13:0] } : a[15:14] ? { 2'd2, ramPage, a[13:0] } : mapped && ramcs ? { 2'd1, page, a[12:0] } : { 2'd0, romPage, a[13:0] };
 	assign d2 = q;
 	assign r2 = !mreq && !rd;
-	assign w2 = !mreq && !wr && (data1FFD[0] || a[15:14] != 0 || (mapped && ramcs && a[13]));
+	assign w2 = !mreq && !wr && (data1FFD[0] || a[15:14] || (mapped && ramcs && a[13]));
 
 //--- cpu -----------------------------------------------------------------------------------------
 

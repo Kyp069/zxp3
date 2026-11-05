@@ -7,7 +7,6 @@ module spi
 (
 	input  wire      clock,
 	input  wire      ce,
-	input  wire      clr,
 	input  wire      io,
 	input  wire[7:0] d,
 	output reg [7:0] q,
@@ -27,7 +26,6 @@ always @(posedge clock) if(ce)
 			sd <= d;
 			count <= 5'd0;
 		end
-		else if(clr) sd <= 8'h00;
 	end
 	else begin
 		count <= count+5'd1;

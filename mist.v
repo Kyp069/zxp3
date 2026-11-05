@@ -51,6 +51,11 @@ module mist
 	output wire[ 7:0] dioD,
 	output wire       dioW,
 
+	input  wire       sdcCs,
+	input  wire       sdcCk,
+	input  wire       sdcMosi,
+	output wire       sdcMiso,
+
 	input  wire       fddCe,
 	input  wire       fddRd,
 	input  wire       fddWr,
@@ -59,10 +64,10 @@ module mist
 	output wire[ 7:0] fddQ,
 	input  wire       fddMtr,
 
-	input  wire       sdcCs,
-	input  wire       sdcCk,
-	input  wire       sdcMosi,
-	output wire       sdcMiso
+	input  wire       tapePlay,
+	input  wire       tapeStop,
+	output wire       tapeBusy,
+	output wire       tapeEar
 );
 //--- confstr -------------------------------------------------------------------------------------
 
@@ -71,16 +76,15 @@ module mist
 		"ZXP3;;",
 		"F0,ROM,Load ROM;",
 		"-;",
-		"O5,DivMMC,On,Off;",
 		"S0U,VHD,Mount SD;",
 		"S1U,DSK,Mount drive A:;",
 		"S2U,DSK,Mount drive B:;",
+		"S3U,TZX,Load TZX;",
 		"-;",
-		"F1,TZX,Load TZX;",
-		"O6,Tape sound,Off,On;",
-		"-;",
-		"O7,Mouse sensitivity,Full,Half;",
-		"O8,Video timing,GA,ULA;",
+		"O2,DivMMC,On,Off;",
+		"O3,Tape sound,Off,On;",
+		"O4,Mouse sensitivity,Full,Half;",
+		"O5,Video timing,GA,ULA;",
 		"-;",
 		"T0,Reset;",
 		"T1,NMI;",
@@ -97,22 +101,24 @@ module mist
 	wire[ 7:0] mouse_flags;
 	wire       mouse_strobe;
 
-	wire[ 2:0] sdRd;
-	wire[ 2:0] sdWr;
-	wire       sdAck;
-	wire[31:0] sdLba = sdBusy ? sdcLba : fddLba;
+	wire[ 3:0] sdRd;
+	wire[ 3:0] sdWr;
+	wire       sdAck = sdAckAll && !sdAckX[3];
+	wire[ 3:0] sdAckX;
+	wire       sdAckCf;
+	wire       sdAckAll;
+	wire[31:0] sdLba = sdRd[3] ? tapeLba : sdBusy ? sdcLba : fddLba;
 	wire       sdBusy;
 	wire       sdConf;
 	wire       sdSdhc;
-	wire       sdAckCf;
-	wire[ 8:0] sdBuffA;
+	wire[16:0] sdBuffA;
 	wire[ 7:0] sdBuffD = sdBusy ? sdcBuffD : fddBuffD;
 	wire[ 7:0] sdBuffQ;
 	wire       sdBuffW;
-	wire[ 2:0] imgMntd;
+	wire[ 3:0] imgMntd;
 	wire[63:0] imgSize;
 
-	user_io #(.STRLEN(235), .SD_IMAGES(3), .SERIAL_CHANNEL(1), .FEATURES(32'h2000)) user_io
+	user_io #(.STRLEN(234), .SD_IMAGES(4), .SERIAL_CHANNEL(1), .FEATURES(32'h2000)) user_io
 	(
 		.conf_str        (confstr),
 		.conf_addr       (       ),
@@ -133,10 +139,11 @@ module mist
 		.ps2_mouse_data_i(1'b0),
 		.sd_rd           (sdRd   ),
 		.sd_wr           (sdWr   ),
-		.sd_ack          (sdAck  ),
+		.sd_ack          (sdAckAll),
 		.sd_ack_conf     (sdAckCf),
-		.sd_ack_x        (),
+		.sd_ack_x        (sdAckX ),
 		.sd_lba          (sdLba  ),
+		.sd_cnt          (       ),
 		.sd_conf         (sdConf ),
 		.sd_sdhc         (sdSdhc ),
 		.sd_buff_addr    (sdBuffA),
@@ -225,6 +232,35 @@ module mist
 		.hdd1_ena      ()
 	);
 
+//--- sd card -------------------------------------------------------------------------------------
+
+	wire[31:0] sdcLba;
+	wire[ 7:0] sdcBuffD;
+
+	sd_card sd_card
+	(
+		.clk_sys     (clock     ),
+		.sd_rd       (sdRd[0]   ),
+		.sd_wr       (sdWr[0]   ),
+		.sd_ack      (sdAck     ),
+		.sd_lba      (sdcLba    ),
+		.sd_busy     (sdBusy    ),
+		.sd_conf     (sdConf    ),
+		.sd_sdhc     (sdSdhc    ),
+		.sd_ack_conf (sdAckCf   ),
+		.sd_buff_addr(sdBuffA[8:0]),
+		.sd_buff_din (sdcBuffD  ),
+		.sd_buff_dout(sdBuffQ   ),
+		.sd_buff_wr  (sdBuffW   ),
+		.img_mounted (imgMntd[0]),
+		.img_size    (imgSize   ),
+		.allow_sdhc  (1'b1      ),
+		.sd_cs       (sdcCs     ),
+		.sd_sck      (sdcCk     ),
+		.sd_sdi      (sdcMosi   ),
+		.sd_sdo      (sdcMiso   )
+	);
+
 //--- u765 ----------------------------------------------------------------------------------------
 
 	reg[2:1] fddRdy;
@@ -256,39 +292,34 @@ module mist
 		.sd_wr       (sdWr[2:1]    ),
 		.sd_ack      (sdAck        ),
 		.sd_lba      (fddLba       ),
-		.sd_buff_addr(sdBuffA      ),
+		.sd_buff_addr(sdBuffA[8:0] ),
 		.sd_buff_din (fddBuffD     ),
 		.sd_buff_dout(sdBuffQ      ),
 		.sd_buff_wr  (sdBuffW      )
 	);
 
-//---sd card --------------------------------------------------------------------------------------
+//--- tape ----------------------------------------------------------------------------------------
 
-	wire[31:0] sdcLba;
-	wire[ 7:0] sdcBuffD;
+	wire[31:0] tapeLba;
 
-	sd_card sd_card
+	tape_sd #(.MS(56000), .TS(16)) tape_sd
 	(
-		.clk_sys     (clock     ),
-		.sd_rd       (sdRd[0]   ),
-		.sd_wr       (sdWr[0]   ),
-		.sd_ack      (sdAck     ),
-		.sd_lba      (sdcLba    ),
-		.sd_busy     (sdBusy    ),
-		.sd_conf     (sdConf    ),
-		.sd_sdhc     (sdSdhc    ),
-		.sd_ack_conf (sdAckCf   ),
-		.sd_buff_addr(sdBuffA   ),
-		.sd_buff_din (sdcBuffD  ),
-		.sd_buff_dout(sdBuffQ   ),
-		.sd_buff_wr  (sdBuffW   ),
-		.img_mounted (imgMntd[0]),
-		.img_size    (imgSize   ),
-		.allow_sdhc  (1'b1      ),
-		.sd_cs       (sdcCs     ),
-		.sd_sck      (sdcCk     ),
-		.sd_sdi      (sdcMosi   ),
-		.sd_sdo      (sdcMiso   )
+		.clock       (clock   ),
+		.img_mounted (imgMntd[3]),
+		.img_size    (imgSize[31:0]),
+		.sd_lba      (tapeLba ),
+		.sd_rd       (sdRd[3] ),
+		.sd_ack      (sdAckX[3]),
+		.sd_buff_addr(sdBuffA[8:0]),
+		.sd_buff_dout(sdBuffQ ),
+		.sd_buff_wr  (sdBuffW ),
+		.play        (tapePlay),
+		.stop        (tapeStop),
+		.stop48      (1'b0    ),
+		.busy        (tapeBusy),
+		.tape        (tapeEar ),
+		.isTap       (        ),
+		.loading     (        )
 	);
 
 //--- osd -----------------------------------------------------------------------------------------
@@ -326,8 +357,8 @@ module mist
 		mouse_strobe_p <= mouse_strobe;
 		if(mouse_strobe != mouse_strobe_p) begin
 			mbtns <= ~{ mouse_flags[2], mouse_flags[0], mouse_flags[1] };
-			xaxis <= xaxis+(status[7] ? { mouse_flags[4], mouse_x[8:2] } : mouse_x[8:1]);
-			yaxis <= yaxis+(status[7] ? { mouse_flags[5], mouse_y[8:2] } : mouse_y[8:1]);
+			xaxis <= xaxis+(status[4] ? { mouse_flags[4], mouse_x[8:2] } : mouse_x[8:1]);
+			yaxis <= yaxis+(status[4] ? { mouse_flags[5], mouse_y[8:2] } : mouse_y[8:1]);
 		end
 	end
 

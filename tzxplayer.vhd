@@ -87,7 +87,29 @@ type tzx_state_t is (
 	TZX_PLAY_TAPBLOCK4,
 	TZX_DIRECT,
 	TZX_DIRECT2,
-	TZX_DIRECT3);
+	TZX_DIRECT3,
+	-- añadidos (Shaeon): saltar cuerpos de bloques no soportados, 0x2B y 0x19 (GDB)
+	TZX_SKIP_LEN32,
+	TZX_SKIP_LEN16,
+	TZX_SKIP_LEN16X2,
+	TZX_SKIP,
+	TZX_LEVEL,
+	TZX_GDB_HDR,
+	TZX_GDB_CFG,
+	TZX_GDB_PTAB,
+	TZX_GDB_PRLE0,
+	TZX_GDB_PRLE1,
+	TZX_GDB_PRLE2,
+	TZX_GDB_DTAB,
+	TZX_GDB_DGET,
+	TZX_GDB_SYM0,
+	TZX_GDB_SYM1,
+	TZX_GDB_SYM2,
+	TZX_GDB_P0,
+	TZX_GDB_P1,
+	TZX_GDB_P2,
+	TZX_GDB_P3,
+	TZX_GDB_SYMDONE);
 
 signal tzx_state: tzx_state_t;
 
@@ -109,15 +131,58 @@ signal motor_counter  : unsigned(21 downto 0);
 signal loop_iter      : unsigned(15 downto 0);
 signal data_len_dword : unsigned(31 downto 0);
 
+-- GDB (bloque 0x19): las tablas de símbolos se guardan en una RAM local
+type gdb_ram_t is array(0 to 1023) of unsigned(7 downto 0);
+signal gdb_ram        : gdb_ram_t;
+signal gdb_ra         : unsigned(9 downto 0);
+signal gdb_wa         : unsigned(9 downto 0);
+signal gdb_q          : unsigned(7 downto 0);
+signal gdb_we         : std_logic;
+signal gdb_wd         : unsigned(7 downto 0);
+signal gdb_len        : unsigned(31 downto 0);
+signal gdb_totp       : unsigned(31 downto 0);
+signal gdb_totd       : unsigned(31 downto 0);
+signal gdb_npp        : unsigned(7 downto 0);
+signal gdb_npd        : unsigned(7 downto 0);
+signal gdb_asp        : unsigned(8 downto 0);
+signal gdb_asd        : unsigned(8 downto 0);
+signal gdb_nb         : unsigned(3 downto 0);
+signal gdb_np         : unsigned(7 downto 0);    -- pulsos por símbolo de la fase actual
+signal gdb_stride     : unsigned(8 downto 0);    -- 2*np+1
+signal gdb_base       : unsigned(9 downto 0);    -- 0: piloto, 512: datos
+signal gdb_data       : std_logic;               -- 0: piloto/sincronismo, 1: datos
+signal gdb_cnt        : unsigned(31 downto 0);
+signal gdb_rep        : unsigned(15 downto 0);
+signal gdb_sym        : unsigned(7 downto 0);
+signal gdb_pp         : unsigned(9 downto 0);    -- dirección del pulso actual
+signal gdb_pidx       : unsigned(7 downto 0);
+signal gdb_flag       : unsigned(1 downto 0);
+signal gdb_lo         : unsigned(7 downto 0);
+signal gdb_byte       : unsigned(7 downto 0);
+signal gdb_bits       : unsigned(3 downto 0);    -- bits que quedan en gdb_byte
+signal gdb_got        : unsigned(3 downto 0);    -- bits ya leídos del símbolo
+
 begin
 
 cass_read <= wave_period;
 cass_running <= playing;
 tap_fifo_do <= host_tap_in;
 
+-- RAM de tablas GDB: escritura y lectura registradas
 process(clk)
 begin
   if rising_edge(clk) then
+	if gdb_we = '1' then
+		gdb_ram(to_integer(gdb_wa)) <= gdb_wd;
+	end if;
+	gdb_q <= gdb_ram(to_integer(gdb_ra));
+  end if;
+end process;
+
+process(clk)
+begin
+  if rising_edge(clk) then
+	gdb_we <= '0';
 	if restart_tape = '1' then
 
 		tzx_offset <= (others => '0');
@@ -198,19 +263,19 @@ begin
 					when x"13" => tzx_state <= TZX_PULSES;
 					when x"14" => tzx_state <= TZX_DATA;
 					when x"15" => tzx_state <= TZX_DIRECT;
-					when x"18" => null; -- CSW recording (not implemented)
-					when x"19" => null; -- Generalized data block (not implemented)
+					when x"18" => tzx_state <= TZX_SKIP_LEN32; -- CSW: no se reproduce, pero se salta entero
+					when x"19" => tzx_state <= TZX_GDB_HDR;     -- Generalized data block
 					when x"20" => tzx_state <= TZX_PAUSE;
 					when x"21" => tzx_state <= TZX_TEXT; -- Group start
 					when x"22" => null; -- Group end
-					when x"23" => null; -- Jump to block (not implemented)
+					when x"23" => data_len_dword <= to_unsigned(2, 32); tzx_state <= TZX_SKIP; -- Jump: se ignora, pero se salta el cuerpo
 					when x"24" => tzx_state <= TZX_LOOP_START;
 					when x"25" => tzx_state <= TZX_LOOP_END;
-					when x"26" => null; -- Call sequence (not implemented)
+					when x"26" => tzx_state <= TZX_SKIP_LEN16X2; -- Call sequence: se ignora, pero se salta el cuerpo
 					when x"27" => null; -- Return from sequence (not implemented)
-					when x"28" => null; -- Select block (not implemented)
+					when x"28" => tzx_state <= TZX_SKIP_LEN16;   -- Select block: se ignora, pero se salta el cuerpo
 					when x"2A" => tzx_state <= TZX_STOP48K;
-					when x"2B" => null; -- Set signal level (not implemented)
+					when x"2B" => tzx_state <= TZX_LEVEL;        -- Set signal level
 					when x"30" => tzx_state <= TZX_TEXT;
 					when x"31" => tzx_state <= TZX_MESSAGE;
 					when x"32" => tzx_state <= TZX_ARCHIVE_INFO;
@@ -551,6 +616,293 @@ begin
 					tzx_state <= TZX_PAUSE2;
 				else
 					tzx_state <= TZX_DIRECT2;
+				end if;
+
+
+			-- bloques con longitud de 32 bits que no se reproducen: se saltan enteros
+			when TZX_SKIP_LEN32 =>
+				tzx_offset <= tzx_offset + 1;
+				if    tzx_offset = x"00" then data_len_dword( 7 downto  0) <= tap_fifo_do;
+				elsif tzx_offset = x"01" then data_len_dword(15 downto  8) <= tap_fifo_do;
+				elsif tzx_offset = x"02" then data_len_dword(23 downto 16) <= tap_fifo_do;
+				else
+					data_len_dword(31 downto 24) <= tap_fifo_do;
+					if data_len_dword(23 downto 0) = 0 and tap_fifo_do = 0 then
+						tzx_state <= TZX_NEWBLOCK;
+					else
+						tzx_state <= TZX_SKIP;
+					end if;
+				end if;
+
+			-- bloques con longitud de 16 bits (0x28)
+			when TZX_SKIP_LEN16 =>
+				tzx_offset <= tzx_offset + 1;
+				if tzx_offset = x"00" then data_len_dword <= x"000000" & tap_fifo_do;
+				else
+					data_len_dword(15 downto 8) <= tap_fifo_do;
+					if data_len_dword(7 downto 0) = 0 and tap_fifo_do = 0 then
+						tzx_state <= TZX_NEWBLOCK;
+					else
+						tzx_state <= TZX_SKIP;
+					end if;
+				end if;
+
+			-- 0x26: número de llamadas (16 bits) y dos bytes por llamada
+			when TZX_SKIP_LEN16X2 =>
+				tzx_offset <= tzx_offset + 1;
+				if tzx_offset = x"00" then data_len_dword <= x"000000" & tap_fifo_do;
+				else
+					data_len_dword <= "000000000000000" & tap_fifo_do & data_len_dword(7 downto 0) & '0';
+					if data_len_dword(7 downto 0) = 0 and tap_fifo_do = 0 then
+						tzx_state <= TZX_NEWBLOCK;
+					else
+						tzx_state <= TZX_SKIP;
+					end if;
+				end if;
+
+			when TZX_SKIP =>
+				if data_len_dword = 1 then
+					tzx_state <= TZX_NEWBLOCK;
+				end if;
+				data_len_dword <= data_len_dword - 1;
+
+			-- 0x2B: longitud (32 bits, siempre 1) y nivel
+			when TZX_LEVEL =>
+				tzx_offset <= tzx_offset + 1;
+				if tzx_offset = x"04" then
+					wave_period <= tap_fifo_do(0);
+					end_period <= tap_fifo_do(0);
+					wave_inverted <= '0';
+					tzx_state <= TZX_NEWBLOCK;
+				end if;
+
+			------------------------------------------------------------------------------
+			-- 0x19: Generalized Data Block
+			-- Las tablas de símbolos de piloto y de datos se copian a gdb_ram (512 bytes
+			-- cada una); si no caben, el bloque se salta entero.
+			------------------------------------------------------------------------------
+			when TZX_GDB_HDR =>
+				tzx_offset <= tzx_offset + 1;
+				case to_integer(tzx_offset) is
+					when  0 => gdb_len( 7 downto  0) <= tap_fifo_do;
+					when  1 => gdb_len(15 downto  8) <= tap_fifo_do;
+					when  2 => gdb_len(23 downto 16) <= tap_fifo_do;
+					when  3 => gdb_len(31 downto 24) <= tap_fifo_do;
+					when  4 => pause_len( 7 downto 0) <= tap_fifo_do;
+					when  5 => pause_len(15 downto 8) <= tap_fifo_do;
+					when  6 => gdb_totp( 7 downto  0) <= tap_fifo_do;
+					when  7 => gdb_totp(15 downto  8) <= tap_fifo_do;
+					when  8 => gdb_totp(23 downto 16) <= tap_fifo_do;
+					when  9 => gdb_totp(31 downto 24) <= tap_fifo_do;
+					when 10 => gdb_npp <= tap_fifo_do;
+					when 11 => if tap_fifo_do = 0 then gdb_asp <= to_unsigned(256, 9); else gdb_asp <= '0' & tap_fifo_do; end if;
+					when 12 => gdb_totd( 7 downto  0) <= tap_fifo_do;
+					when 13 => gdb_totd(15 downto  8) <= tap_fifo_do;
+					when 14 => gdb_totd(23 downto 16) <= tap_fifo_do;
+					when 15 => gdb_totd(31 downto 24) <= tap_fifo_do;
+					when 16 => gdb_npd <= tap_fifo_do;
+					when others =>
+						if tap_fifo_do = 0 then gdb_asd <= to_unsigned(256, 9); else gdb_asd <= '0' & tap_fifo_do; end if;
+						tzx_state <= TZX_GDB_CFG;
+				end case;
+
+			when TZX_GDB_CFG =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				-- bits por símbolo de datos: ceil(log2(asd))
+				if    gdb_asd <= 2   then gdb_nb <= x"1";
+				elsif gdb_asd <= 4   then gdb_nb <= x"2";
+				elsif gdb_asd <= 8   then gdb_nb <= x"3";
+				elsif gdb_asd <= 16  then gdb_nb <= x"4";
+				elsif gdb_asd <= 32  then gdb_nb <= x"5";
+				elsif gdb_asd <= 64  then gdb_nb <= x"6";
+				elsif gdb_asd <= 128 then gdb_nb <= x"7";
+				else                      gdb_nb <= x"8";
+				end if;
+				if (gdb_totp /= 0 and gdb_asp * (gdb_npp & '1') > 512) or
+				   (gdb_totd /= 0 and gdb_asd * (gdb_npd & '1') > 512) then
+					-- tablas demasiado grandes: se salta el resto del bloque
+					data_len_dword <= gdb_len - 14;
+					if gdb_len <= 14 then
+						tzx_state <= TZX_NEWBLOCK;
+					else
+						tzx_state <= TZX_SKIP;
+					end if;
+				elsif gdb_totp /= 0 then
+					gdb_wa <= (others => '1');           -- base - 1 (0 - 1)
+					gdb_cnt <= resize(gdb_asp * (gdb_npp & '1'), 32);
+					tzx_state <= TZX_GDB_PTAB;
+				elsif gdb_totd /= 0 then
+					gdb_wa <= to_unsigned(511, 10);       -- base - 1 (512 - 1)
+					gdb_cnt <= resize(gdb_asd * (gdb_npd & '1'), 32);
+					tzx_state <= TZX_GDB_DTAB;
+				else
+					tzx_state <= TZX_PAUSE2;
+				end if;
+
+			-- tabla de símbolos del piloto
+			when TZX_GDB_PTAB =>
+				gdb_we <= '1';
+				gdb_wd <= tap_fifo_do;
+				gdb_wa <= gdb_wa + 1;
+				gdb_cnt <= gdb_cnt - 1;
+				if gdb_cnt = 1 then
+					gdb_cnt <= gdb_totp;
+					tzx_state <= TZX_GDB_PRLE0;
+				end if;
+
+			-- piloto: tripletes símbolo + repeticiones
+			when TZX_GDB_PRLE0 =>
+				gdb_sym <= tap_fifo_do;
+				tzx_state <= TZX_GDB_PRLE1;
+			when TZX_GDB_PRLE1 =>
+				gdb_rep(7 downto 0) <= tap_fifo_do;
+				tzx_state <= TZX_GDB_PRLE2;
+			when TZX_GDB_PRLE2 =>
+				gdb_rep(15 downto 8) <= tap_fifo_do;
+				gdb_data <= '0';
+				gdb_base <= (others => '0');
+				gdb_np <= gdb_npp;
+				gdb_stride <= gdb_npp & '1';
+				if gdb_rep(7 downto 0) = 0 and tap_fifo_do = 0 then
+					tzx_state <= TZX_GDB_SYMDONE;  -- 0 repeticiones
+				else
+					tzx_state <= TZX_GDB_SYM0;
+				end if;
+
+			-- tabla de símbolos de datos
+			when TZX_GDB_DTAB =>
+				gdb_we <= '1';
+				gdb_wd <= tap_fifo_do;
+				gdb_wa <= gdb_wa + 1;
+				gdb_cnt <= gdb_cnt - 1;
+				if gdb_cnt = 1 then
+					gdb_cnt <= gdb_totd;
+					gdb_bits <= (others => '0');
+					gdb_got <= (others => '0');
+					gdb_data <= '1';
+					gdb_base <= to_unsigned(512, 10);
+					gdb_np <= gdb_npd;
+					gdb_stride <= gdb_npd & '1';
+					gdb_rep <= x"0001";
+					tzx_state <= TZX_GDB_DGET;
+				end if;
+
+			-- datos: nb bits por símbolo, del bit más alto al más bajo
+			when TZX_GDB_DGET =>
+				if gdb_bits = 0 then
+					gdb_byte <= tap_fifo_do;      -- consume un byte
+					gdb_bits <= x"8";
+				else
+					tzx_req <= tzx_ack; -- don't request new byte
+					gdb_sym <= gdb_sym(6 downto 0) & gdb_byte(7);
+					gdb_byte <= gdb_byte(6 downto 0) & '0';
+					gdb_bits <= gdb_bits - 1;
+					if gdb_got + 1 = gdb_nb then
+						gdb_got <= (others => '0');
+						gdb_rep <= x"0001";
+						tzx_state <= TZX_GDB_SYM0;
+					else
+						gdb_got <= gdb_got + 1;
+					end if;
+				end if;
+				if gdb_got = 0 and gdb_bits /= 0 then
+					gdb_sym <= "0000000" & gdb_byte(7);
+				end if;
+
+			-- reproducción de un símbolo: indicador + hasta np pulsos de 16 bits
+			when TZX_GDB_SYM0 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				gdb_ra <= gdb_base + resize(gdb_sym * gdb_stride, 10);
+				tzx_state <= TZX_GDB_SYM1;
+			when TZX_GDB_SYM1 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				tzx_state <= TZX_GDB_SYM2;
+			when TZX_GDB_SYM2 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				gdb_flag <= gdb_q(1 downto 0);
+				gdb_pp <= gdb_ra + 1;
+				gdb_pidx <= (others => '0');
+				tzx_state <= TZX_GDB_P0;
+			when TZX_GDB_P0 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				if gdb_pidx = gdb_np then
+					tzx_state <= TZX_GDB_SYMDONE;
+				else
+					gdb_ra <= gdb_pp;
+					tzx_state <= TZX_GDB_P1;
+				end if;
+			when TZX_GDB_P1 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				gdb_ra <= gdb_pp + 1;
+				tzx_state <= TZX_GDB_P2;
+			when TZX_GDB_P2 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				gdb_lo <= gdb_q;
+				tzx_state <= TZX_GDB_P3;
+			when TZX_GDB_P3 =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				if gdb_q = 0 and gdb_lo = 0 then
+					tzx_state <= TZX_GDB_SYMDONE;      -- pulso de longitud 0: fin del símbolo
+				else
+					if gdb_pidx = 0 then
+						case gdb_flag is
+						when "00" =>                     -- flanco
+							if wave_inverted = '0' then
+								wave_period <= not wave_period;
+								end_period <= not wave_period;
+							else
+								end_period <= wave_period;
+							end if;
+						when "01" =>                     -- mismo nivel
+							end_period <= wave_period;
+						when "10" =>                     -- nivel bajo
+							wave_period <= '0';
+							end_period <= '0';
+						when others =>                   -- nivel alto
+							wave_period <= '1';
+							end_period <= '1';
+						end case;
+						wave_inverted <= '0';
+					else
+						wave_period <= not wave_period;
+						end_period <= not wave_period;
+					end if;
+					pulse_len <= gdb_q & gdb_lo;
+					gdb_pidx <= gdb_pidx + 1;
+					gdb_pp <= gdb_pp + 2;
+					tzx_state <= TZX_GDB_P0;
+				end if;
+
+			when TZX_GDB_SYMDONE =>
+				tzx_req <= tzx_ack; -- don't request new byte
+				if gdb_rep > 1 then
+					gdb_rep <= gdb_rep - 1;
+					tzx_state <= TZX_GDB_SYM0;
+				elsif gdb_data = '0' then
+					-- siguiente entrada del piloto, o tabla de datos
+					if gdb_cnt > 1 then
+						gdb_cnt <= gdb_cnt - 1;
+						tzx_state <= TZX_GDB_PRLE0;
+					elsif gdb_totd /= 0 then
+						gdb_wa <= to_unsigned(511, 10);       -- base - 1 (512 - 1)
+						gdb_cnt <= resize(gdb_asd * (gdb_npd & '1'), 32);
+						tzx_state <= TZX_GDB_DTAB;
+					else
+						-- flanco final para cerrar el último pulso (como TZX_PLAY_TAPBLOCK3)
+						wave_period <= not wave_period;
+						wave_inverted <= '1';
+						tzx_state <= TZX_PAUSE2;
+					end if;
+				else
+					if gdb_cnt > 1 then
+						gdb_cnt <= gdb_cnt - 1;
+						tzx_state <= TZX_GDB_DGET;
+					else
+						-- flanco final para cerrar el último pulso (como TZX_PLAY_TAPBLOCK3)
+						wave_period <= not wave_period;
+						wave_inverted <= '1';
+						tzx_state <= TZX_PAUSE2;
+					end if;
 				end if;
 
 			when others => null;
