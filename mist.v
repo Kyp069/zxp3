@@ -79,7 +79,7 @@ module mist
 		"S0U,VHD,Mount SD;",
 		"S1U,DSK,Mount drive A:;",
 		"S2U,DSK,Mount drive B:;",
-		"S3U,TZX,Load TZX;",
+		"S3U,TZXTAPPZX,Load tape;",
 		"-;",
 		"O2,DivMMC,On,Off;",
 		"O3,Tape sound,Off,On;",
@@ -88,7 +88,7 @@ module mist
 		"-;",
 		"T0,Reset;",
 		"T1,NMI;",
-		"V,V2.0,2026.03.26;",
+		"V,V2.0,2026.11.10;",
 	};
 
 //--- user io--------------------------------------------------------------------------------------
@@ -118,7 +118,7 @@ module mist
 	wire[ 3:0] imgMntd;
 	wire[63:0] imgSize;
 
-	user_io #(.STRLEN(234), .SD_IMAGES(4), .SERIAL_CHANNEL(1), .FEATURES(32'h2000)) user_io
+	user_io #(.STRLEN(241), .SD_IMAGES(4), .SERIAL_CHANNEL(1), .FEATURES(32'h2000)) user_io
 	(
 		.conf_str        (confstr),
 		.conf_addr       (       ),
@@ -142,8 +142,8 @@ module mist
 		.sd_ack          (sdAckAll),
 		.sd_ack_conf     (sdAckCf),
 		.sd_ack_x        (sdAckX ),
+		.sd_cnt          (8'd0),
 		.sd_lba          (sdLba  ),
-		.sd_cnt          (       ),
 		.sd_conf         (sdConf ),
 		.sd_sdhc         (sdSdhc ),
 		.sd_buff_addr    (sdBuffA),
@@ -318,6 +318,7 @@ module mist
 		.stop48      (1'b0    ),
 		.busy        (tapeBusy),
 		.tape        (tapeEar ),
+		.isPzx       (        ),
 		.isTap       (        ),
 		.loading     (        )
 	);
@@ -348,6 +349,8 @@ module mist
 	assign sync = { 1'b1, ~(hsync^vsync) };
 
 //-------------------------------------------------------------------------------------------------
+
+	initial mbtns = 3'b111;
 
 	assign joy1 = joystick_1[7:0];
 	assign joy2 = joystick_0[7:0];

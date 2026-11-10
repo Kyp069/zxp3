@@ -7,7 +7,8 @@
 // guarda en una caché de 2 sectores (1 KB de BRAM). Mientras se reproduce un sector, se pide por
 // adelantado el siguiente, así que la cinta no espera a la SD salvo al saltar hacia atrás (bucles).
 //
-// - Formato: si los 8 primeros bytes son "ZXTape!" + 0x1A, TZX (tzxplayer); si no, TAP (tap_player).
+// - Formato: si los 8 primeros bytes son "ZXTape!" + 0x1A, TZX (tzxplayer); si los 4 primeros son
+//   "PZXT", PZX (pzx_player); si no, TAP (tap_player).
 // - TZX: handshake req != ack, bucles 0x24/0x25, 0x2A solo con stop48 = 1.
 // - Conexión con user_io: sd_ack debe ser el ack de ESTA imagen (sd_ack_x[n]), para no confundir
 //   sus transferencias con las de la DivMMC o los discos.
@@ -36,6 +37,7 @@ module tape_sd
 	output wire       busy,
 	output wire       tape,
 	output reg        isTap = 1'b0,
+	output reg        isPzx = 1'b0,
 	output wire       loading             // leyendo un sector de la SD (para un LED, por ejemplo)
 );
 //--- caché de 2 sectores -------------------------------------------------------------------------
@@ -60,6 +62,7 @@ module tape_sd
 	reg        ld = 1'b0;                 // lectura de un sector en curso
 	reg        ackP = 1'b0;
 	reg        sigOk;
+	reg        pzxOk;
 	assign loading = ld;
 
 	wire[22:0] lastSec = size[31:9] - (size[8:0] == 0);
@@ -102,8 +105,8 @@ module tape_sd
 			sd_rd <= 1'b0;
 			ld <= 1'b0;
 			curSec <= 23'd0;
-			if(img_size != 0) begin sigOk <= 1'b1; load(23'd0, 1'b0); end
-			else isTap <= 1'b0;
+			if(img_size != 0) begin sigOk <= 1'b1; pzxOk <= 1'b1; load(23'd0, 1'b0); end
+			else begin isTap <= 1'b0; isPzx <= 1'b0; end
 		end
 		else begin
 			// lectura en curso
@@ -112,10 +115,12 @@ module tape_sd
 				// formato: se comprueban los 8 primeros bytes del sector 0
 				if(sd_ack && sd_buff_wr && tag[wSlot] == 0 && sd_buff_addr < 8 && sd_buff_dout != tzxSig(sd_buff_addr[2:0]))
 					sigOk <= 1'b0;
+				if(sd_ack && sd_buff_wr && tag[wSlot] == 0 && sd_buff_addr < 4 && sd_buff_dout != pzxSig(sd_buff_addr[1:0]))
+					pzxOk <= 1'b0;
 				if(ackP && !sd_ack) begin
 					valid[wSlot] <= 1'b1;
 					ld <= 1'b0;
-					if(tag[wSlot] == 0) isTap <= !sigOk;
+					if(tag[wSlot] == 0) begin isTap <= !sigOk && !pzxOk; isPzx <= pzxOk; end
 				end
 			end
 
@@ -138,6 +143,10 @@ module tape_sd
 				load(curSec+1'd1, (valid[0] && tag[0] == curSec) ? 1'b1 : 1'b0);
 		end
 	end
+
+	function [7:0] pzxSig(input [1:0] i);
+		case(i) 0: pzxSig = "P"; 1: pzxSig = "Z"; 2: pzxSig = "X"; default: pzxSig = "T"; endcase
+	endfunction
 
 	function [7:0] tzxSig(input [2:0] i);
 		case(i)
@@ -197,8 +206,32 @@ module tape_sd
 		.mQ   (rQ                       )
 	);
 
-	assign busy = isTap ? tapBusy : tzxBusy;
-	assign tape = isTap ? tapTape : tzxTape;
+//--- PZX: pzx_player -----------------------------------------------------------------------------
+
+	wire       pzxReq;
+	reg        pzxAck = 1'b0;
+	wire[21:0] pzxA;
+	reg        pzxFetch = 1'b0;
+	wire       pzxBusy, pzxTape;
+
+	pzx_player #(.TS(TS)) pzx_player
+	(
+		.clock (clock                    ),
+		.play  (play && mounted && isPzx ),
+		.stop  (stop || img_mounted      ),
+		.stop48(stop48                   ),
+		.size  (size[21:0]               ),
+		.busy  (pzxBusy                  ),
+		.tape  (pzxTape                  ),
+		.mReq  (pzxReq                   ),
+		.mAck  (pzxAck                   ),
+		.mA    (pzxA                     ),
+		.mQ    (rQ                       )
+	);
+
+	wire isTzx = !isTap && !isPzx;
+	assign busy = isTap ? tapBusy : isPzx ? pzxBusy : tzxBusy;
+	assign tape = isTap ? tapTape : isPzx ? pzxTape : tzxTape;
 
 //--- peticiones de los reproductores al servidor de bytes ----------------------------------------
 
@@ -208,21 +241,25 @@ module tape_sd
 		if(rReq == rAck) begin
 			if(tzxFetch) begin data <= rQ; ack <= req; a <= a+1'd1; tzxFetch <= 1'b0; end
 			if(tapFetch) begin tapAck <= tapReq; tapFetch <= 1'b0; end
+			if(pzxFetch) begin pzxAck <= pzxReq; pzxFetch <= 1'b0; end
 		end
 
-		if(rReq == rAck && !tzxFetch && !tapFetch) begin
-			if(!isTap && motor && req != ack && !loopStart && !loopNext) begin
+		if(rReq == rAck && !tzxFetch && !tapFetch && !pzxFetch) begin
+			if(isTzx && motor && req != ack && !loopStart && !loopNext) begin
 				rA <= a; rReq <= ~rReq; tzxFetch <= 1'b1;
 			end
 			else if(isTap && tapReq != tapAck) begin
 				rA <= { 10'd0, tapA }; rReq <= ~rReq; tapFetch <= 1'b1;
 			end
+			else if(isPzx && pzxReq != pzxAck) begin
+				rA <= { 10'd0, pzxA }; rReq <= ~rReq; pzxFetch <= 1'b1;
+			end
 		end
 
-		if(play && mounted && !isTap) begin
+		if(play && mounted && isTzx) begin
 			a <= 32'd0; motor <= 1'b1; restart <= 1'b1;
 		end
-		else if(stop || eot || (eot48 && stop48) || img_mounted || isTap || a >= size) motor <= 1'b0;
+		else if(stop || eot || (eot48 && stop48) || img_mounted || !isTzx || a >= size) motor <= 1'b0;
 		else if(loopStart) loopA <= a;
 		else if(loopNext)  a <= loopA;
 	end
