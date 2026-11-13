@@ -10,6 +10,9 @@ module mist
 )
 (
 	input  wire       clock,
+	input  wire       ne14M,
+	input  wire       ne7M0,
+
 	input  wire       power,
 
 	input  wire       spiCk,
@@ -118,6 +121,8 @@ module mist
 	wire[ 3:0] imgMntd;
 	wire[63:0] imgSize;
 
+	wire novga;
+
 	user_io #(.STRLEN(241), .SD_IMAGES(4), .SERIAL_CHANNEL(1), .FEATURES(32'h2000)) user_io
 	(
 		.conf_str        (confstr),
@@ -190,7 +195,7 @@ module mist
 		.serial_strobe   (midiS),
 		.joystick_analog_0(),
 		.joystick_analog_1(),
-		.scandoubler_disable()
+		.scandoubler_disable(novga)
 	);
 
 //--- data io--------------------------------------------------------------------------------------
@@ -325,6 +330,8 @@ module mist
 
 //--- osd -----------------------------------------------------------------------------------------
 
+	wire[RGBW*3-1:0] rgbosd;
+
 	osd #(.BIG_OSD(1'b1), .OUT_COLOR_DEPTH(RGBW)) osd
 	(
 		.clk_sys(clock  ),
@@ -340,13 +347,27 @@ module mist
 		.R_in   ({RGBW/2{ r, r&i }}),
 		.G_in   ({RGBW/2{ g, g&i }}),
 		.B_in   ({RGBW/2{ b, b&i }}),
-		.R_out  (rgb[(3*RGBW)-1:2*RGBW]),
-		.G_out  (rgb[(2*RGBW)-1:1*RGBW]),
-		.B_out  (rgb[(1*RGBW)-1:0*RGBW]),
+		.R_out  (rgbosd[RGBW*3-1:RGBW*2]),
+		.G_out  (rgbosd[RGBW*2-1:RGBW*1]),
+		.B_out  (rgbosd[RGBW*1-1:RGBW*0]),
 		.osd_enable()
 	);
 
-	assign sync = { 1'b1, ~(hsync^vsync) };
+//---scandoubler ----------------------------------------------------------------------------------
+
+	scandoubler #(.RGBW(RGBW*3)) scandoubler
+	(
+		.clock   (clock  ),
+		.novga   (novga  ),
+		.ice     (ne7M0  ),
+		.isync   ({ vsync, hsync }),
+		.irgb    (rgbosd ),
+		.oce     (ne14M  ),
+		.osync   (sync   ),
+		.orgb    (rgb    )
+	);
+
+	// assign sync = { 1'b1, ~(hsync^vsync) };
 
 //-------------------------------------------------------------------------------------------------
 
