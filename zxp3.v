@@ -89,11 +89,11 @@ module zxp3
 
 	reg[3:0] data1FFD;
 	always @(posedge clock, negedge reset)
-		if(!reset) data1FFD <= 1'd0; else if(pe3M5) if(iorq1FFD && !wr) data1FFD <= q[3:0];
+		if(!reset) data1FFD <= 1'd0; else if(ne7M0) if(iorq1FFD && !wr && !data7FFD[5]) data1FFD <= q[3:0];
 
 	reg[5:0] data7FFD;
 	always @(posedge clock, negedge reset)
-		if(!reset) data7FFD <= 1'd0; else if(pe3M5) if(iorq7FFD && !wr) data7FFD <= { data7FFD[5]|q[5], q[4:0] };
+		if(!reset) data7FFD <= 1'd0; else if(ne7M0) if(iorq7FFD && !wr && !data7FFD[5]) data7FFD <= q[5:0];
 
 	reg[4:0] dataFE;
 	always @(posedge clock) if(ne7M0) if(iorqFE && !wr) dataFE <= q[4:0];
