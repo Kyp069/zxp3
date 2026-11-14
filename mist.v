@@ -91,7 +91,7 @@ module mist
 		"-;",
 		"T0,Reset;",
 		"T1,NMI;",
-		"V,V2.0,2026.11.10;",
+		"V,V2.0,2026.11.14;",
 	};
 
 //--- user io--------------------------------------------------------------------------------------
@@ -332,10 +332,10 @@ module mist
 
 	wire[RGBW*3-1:0] rgbosd;
 
-	osd #(.BIG_OSD(1'b1), .OUT_COLOR_DEPTH(RGBW)) osd
+	osd #(.BIG_OSD(1'b1), .OSD_AUTO_CE(0), .OUT_COLOR_DEPTH(RGBW)) osd
 	(
 		.clk_sys(clock  ),
-		.ce     (1'b0   ),
+		.ce     (ne7M0   ),
 		.SPI_SCK(spiCk  ),
 		.SPI_SS3(spiSs3 ),
 		.SPI_DI (spiMosi),
