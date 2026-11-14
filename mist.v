@@ -99,6 +99,10 @@ module mist
 	wire[31:0] joystick_0;
 	wire[31:0] joystick_1;
 
+	wire[7:0] key_code;
+	wire      key_strobe;
+	wire      key_pressed;
+
 	wire[ 8:0] mouse_x;
 	wire[ 8:0] mouse_y;
 	wire[ 7:0] mouse_flags;
@@ -166,10 +170,10 @@ module mist
 		.switches        (),
 		.no_csync        (),
 		.core_mod        (),
-		.key_pressed     (),
+		.key_pressed     (key_pressed),
 		.key_extended    (),
-		.key_code        (),
-		.key_strobe      (),
+		.key_code        (key_code),
+		.key_strobe      (key_strobe),
 		.kbd_out_data    (8'd0),
 		.kbd_out_strobe  (1'b0),
 		.mouse_x         (mouse_x),
@@ -355,10 +359,13 @@ module mist
 
 //---scandoubler ----------------------------------------------------------------------------------
 
+	reg vmode;
+	always @(posedge clock) if(key_strobe) if(key_code == 8'h7E) if(key_pressed) vmode <= ~vmode;
+
 	scandoubler #(.RGBW(RGBW*3)) scandoubler
 	(
 		.clock   (clock  ),
-		.novga   (novga  ),
+		.novga   (novga^vmode),
 		.ice     (ne7M0  ),
 		.isync   ({ vsync, hsync }),
 		.irgb    (rgbosd ),
